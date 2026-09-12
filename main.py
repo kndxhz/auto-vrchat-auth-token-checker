@@ -53,7 +53,7 @@ def main() -> int:
 
     child = pexpect.spawn(
         "npx",
-        ["vrchat-auth-token-checker", "-y"],
+        ["-y", "vrchat-auth-token-checker"],
         encoding="utf-8",
         timeout=180,
     )
