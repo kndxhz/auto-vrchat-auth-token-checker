@@ -1,0 +1,1 @@
+# auto-vrchat-auth-token-checker
