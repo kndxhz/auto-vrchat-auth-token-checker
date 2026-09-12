@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-运行 npx vrchat-auth-token-checker -y，
+运行 npx -y vrchat-auth-token-checker -y，
 自动从 .env 读取用户名 / 密码 / TOTP 密钥并按提示输入，
 最终只输出形如 "Auth token: authcookie_xxx" 的一行。
+所有子进程输出、诊断信息都被丢弃，stdout / stderr 保持干净。
 """
 
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -18,7 +18,6 @@ def load_env(path: str = ".env") -> dict:
     env = {}
     p = Path(path)
     if not p.exists():
-        print(f"[error] .env not found at {p.resolve()}", file=sys.stderr)
         return env
     for line in p.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -38,27 +37,25 @@ def main() -> int:
     password = env.get("PASSWORD")
     totp_secret = env.get("TOTP") or env.get("TOTP_SECRET") or env.get("TOTP_CODE")
 
-    missing = [
-        n
-        for n, v in (
-            ("USERNAME", username),
-            ("PASSWORD", password),
-            ("TOTP/TOTP_SECRET", totp_secret),
-        )
-        if not v
-    ]
-    if missing:
-        print(f"[error] missing in .env: {', '.join(missing)}", file=sys.stderr)
+    if not (username and password and totp_secret):
         return 1
+
+    # 让 npm / npx 自动确认安装
+    npm_env = os.environ.copy()
+    npm_env["npm_config_yes"] = "true"
+
+    # 把子进程的所有输出丢到 /dev/null
+    devnull = open(os.devnull, "w")
 
     child = pexpect.spawn(
         "npx",
         ["-y", "vrchat-auth-token-checker"],
         encoding="utf-8",
         timeout=180,
+        env=npm_env,
     )
-    # 把子进程输出放到 stderr，避免污染 stdout（stdout 只允许输出最终一行）
-    child.logfile_read = sys.stderr
+    child.logfile_read = devnull  # 不打印任何子进程输出
+    child.logfile_send = devnull  # 也不回显我们发送的内容
 
     auth_token = None
 
@@ -83,13 +80,17 @@ def main() -> int:
             elif idx == 3:
                 auth_token = child.match.group(1)
                 break
-            else:  # EOF 或 TIMEOUT
+            else:  # EOF / TIMEOUT
                 break
-    except pexpect.ExceptionPexpect as e:
-        print(f"[error] {e}", file=sys.stderr)
+    except pexpect.ExceptionPexpect:
+        pass
     finally:
         try:
             child.close(force=True)
+        except Exception:
+            pass
+        try:
+            devnull.close()
         except Exception:
             pass
 
